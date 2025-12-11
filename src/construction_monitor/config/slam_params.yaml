@@ -1,0 +1,74 @@
+slam_toolbox:
+  ros__parameters:
+    # Solver plugin
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+
+    # ROS Parameters
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_footprint
+    scan_topic: /scan
+    use_map_saver: true
+    mode: mapping
+
+    debug_logging: false
+    throttle_scans: 1
+    transform_publish_period: 0.02
+
+    # === IMPROVED FOR BETTER ACCURACY ===
+    map_update_interval: 1.0        # Was 5.0 - Update map more frequently
+    resolution: 0.03                # Was 0.05 - Higher resolution map
+
+    min_laser_range: 0.12           # TurtleBot3 LDS-01 minimum range
+    max_laser_range: 3.5            # TurtleBot3 LDS-01 maximum range
+
+    minimum_time_interval: 0.3      # Was 0.5 - Process scans more often
+    transform_timeout: 0.2
+    tf_buffer_duration: 30.0
+    stack_size_to_use: 40000000
+    enable_interactive_mode: true
+
+    # === SCAN MATCHING (reduce drift) ===
+    use_scan_matching: true
+    use_scan_barycenter: true
+    minimum_travel_distance: 0.3    # Was 0.5 - Match scans more frequently
+    minimum_travel_heading: 0.3     # Was 0.5 - Match on smaller rotations
+    scan_buffer_size: 15            # Was 10 - Keep more scans for matching
+    scan_buffer_maximum_scan_distance: 8.0  # Was 10.0
+    link_match_minimum_response_fine: 0.1
+    link_scan_maximum_distance: 1.5
+
+    # === LOOP CLOSURE (fix drift when revisiting areas) ===
+    do_loop_closing: true
+    loop_search_maximum_distance: 8.0       # Was 3.0 - Search larger area for loops
+    loop_match_minimum_chain_size: 6        # Was 10 - Easier to trigger loop closure
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.3 # Was 0.35 - More sensitive
+    loop_match_minimum_response_fine: 0.4   # Was 0.45 - More sensitive
+
+    # Correlation Parameters
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    # Loop Closure Search Space
+    loop_search_space_dimension: 10.0       # Was 8.0 - Search larger area
+    loop_search_space_resolution: 0.04      # Was 0.05 - Finer search
+    loop_search_space_smear_deviation: 0.03
+
+    # Scan Matcher Parameters
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
+    min_pass_through: 2
+    occupancy_threshold: 0.1

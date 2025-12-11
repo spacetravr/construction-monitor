@@ -259,11 +259,11 @@ source /usr/share/gazebo/setup.bash
 ros2 launch construction_monitor construction_world.launch.py
 ```
 
-**Terminal 2: Launch SLAM Toolbox**
+**Terminal 2: Launch SLAM Toolbox (with custom config for better accuracy)**
 ```bash
 export TURTLEBOT3_MODEL=burger
 source ~/ros2_ws/install/setup.bash
-ros2 launch slam_toolbox online_async_launch.py
+ros2 launch slam_toolbox online_async_launch.py params_file:=$(ros2 pkg prefix construction_monitor)/share/construction_monitor/config/slam_params.yaml
 ```
 
 **Terminal 3: Launch RViz2 with auto-config (to visualize the map)**
@@ -301,8 +301,20 @@ ros2 run construction_monitor auto_explorer
 
 **Files created:**
 - [slam_config.rviz](src/construction_monitor/config/slam_config.rviz) - Pre-configured RViz2 settings
+- [slam_params.yaml](src/construction_monitor/config/slam_params.yaml) - Custom SLAM parameters for better accuracy
 
-**Result:** Robot autonomously explores the construction site using optimized obstacle avoidance with 3x faster mapping speed!
+**Custom SLAM Parameters (slam_params.yaml):**
+| Setting | Default | Custom | Effect |
+|---------|---------|--------|--------|
+| `map_update_interval` | 5.0s | **1.0s** | Map updates 5x faster |
+| `resolution` | 0.05m | **0.03m** | Sharper walls, more detail |
+| `loop_search_maximum_distance` | 3.0m | **8.0m** | Better loop closure detection |
+| `minimum_travel_distance` | 0.5m | **0.3m** | More frequent scan matching |
+| `loop_match_minimum_chain_size` | 10 | **6** | Easier loop closure trigger |
+| `min_laser_range` | 0.0m | **0.12m** | Matches TurtleBot3 LDS-01 spec |
+| `max_laser_range` | 20.0m | **3.5m** | Matches TurtleBot3 LDS-01 spec |
+
+**Result:** Robot autonomously explores the construction site with improved SLAM accuracy and better loop closure!
 
 ---
 
@@ -513,4 +525,4 @@ export TURTLEBOT3_MODEL=burger
 
 ---
 
-**Last Updated:** 2025-12-11
+**Last Updated:** 2025-12-12
