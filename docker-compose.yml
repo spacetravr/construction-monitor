@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  ros2-humble-dev:
+    image: ros2-humble-dev:latest
+    network_mode: "host"
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - ./:/workspace:cached
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    working_dir: /workspace
+    user: "${UID:-1000}:${GID:-1000}"
+    tty: true
+    stdin_open: true
+    command: /bin/bash

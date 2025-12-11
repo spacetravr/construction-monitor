@@ -143,7 +143,7 @@ ros2 launch construction_monitor construction_world.launch.py
    - Path: `/home/ezis/ros2_ws/src/construction_monitor/construction_monitor/auto_explorer.py`
    - This is the standard Python module location for ROS2 packages
 
-2. **Code Structure (Final Optimized Version):**
+2. **Code Structure (Final Optimized Version with Frontier Detection):**
    ```python
    class AutoExplorer(Node):
        def __init__(self):
@@ -153,20 +153,24 @@ ros2 launch construction_monitor construction_world.launch.py
            # Subscriber: receives laser scan data for obstacle detection
            self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
 
+           # Subscriber: receives map data for frontier detection
+           self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
+
            # Robot states: FORWARD, TURN_LEFT, TURN_RIGHT (NO BACKUP STATE)
            self.state = 'FORWARD'
 
-           # Parameters (OPTIMIZED FOR FAST MAPPING)
+           # Parameters (OPTIMIZED FOR ACCURATE MAPPING)
            self.obstacle_distance = 1.8   # React early at 1.8m
            self.linear_speed = 0.15       # Fast forward speed
-           self.angular_speed = 1.0       # Very fast turning
+           self.angular_speed = 1.0       # Fast turning
 
-           # Random exploration to cover unmapped areas
+           # Frontier exploration (SMART - turns toward unexplored areas)
            self.forward_counter = 0
-           self.max_forward_time = 50     # Turn randomly every ~5 seconds
+           self.max_forward_time = 150    # Turn every ~15 seconds (explore more before turning)
+           self.frontier_direction = None # LEFT, RIGHT, or None (from map analysis)
    ```
 
-3. **Obstacle Avoidance Logic (OPTIMIZED):**
+3. **Obstacle Avoidance Logic (OPTIMIZED FOR ACCURACY):**
    - **Step 1:** Analyze laser scan data
      - **Front sector:** Indices 315-360 and 0-45 (90° centered at 0° = FRONT)
        - Index 0 = FRONT (along +X axis, confirmed by official TurtleBot3 docs)
@@ -184,13 +188,20 @@ ros2 launch construction_monitor construction_world.launch.py
    - **Step 4:** Make intelligent decisions
      - If `min_front_distance < 1.8m` → Obstacle detected!
        - **Corner detection:** If left AND right < 0.8m → 180° turn to escape
-       - **Normal obstacle:** Turn 60° toward side with more space
-     - If moving straight for 5+ seconds → Random 30° turn (explore unmapped areas)
+       - **Normal obstacle:** Turn 30° toward side with more space (SMALL & ACCURATE)
+     - If moving straight for 15+ seconds → Turn 20° toward unexplored area (frontier detection)
      - Else → Move FORWARD at 0.15 m/s
 
-4. **Movement Flow (OPTIMIZED FOR SPEED & COVERAGE):**
+4. **Frontier Detection (SMART EXPLORATION):**
+   - Subscribes to `/map` topic from SLAM Toolbox
+   - Analyzes map to find unexplored areas (cells with value -1)
+   - Counts unknown cells on LEFT vs RIGHT side of map
+   - Robot turns toward side with MORE unexplored area
+   - Logs exploration progress: `Map: X% explored`
+
+5. **Movement Flow (OPTIMIZED FOR ACCURACY & COVERAGE):**
    ```
-   START → FORWARD state → Move forward at 0.15 m/s (FAST)
+   START → FORWARD state → Move forward at 0.15 m/s
           ↓
    Obstacle detected at 1.8m (EARLY DETECTION)
           ↓
@@ -198,23 +209,24 @@ ros2 launch construction_monitor construction_world.launch.py
           ↓ Yes                        ↓ No
    180° turn (3.14s)         Compare left vs right space
           ↓                            ↓
-   Turn complete              60° turn (1.0s) - SMALL ANGLE
+   Turn complete              30° turn (0.5s) - SMALL & ACCURATE
           ↓                            ↓
    Back to FORWARD ←──────────┘
           ↓
-   After 5s straight → Random 30° turn (explore unmapped areas)
+   After 15s straight → 20° turn toward unexplored area (FRONTIER DETECTION)
           ↓
-   REPEAT
+   REPEAT until map complete
    ```
 
    **Key improvements:**
-   - ✅ **3x faster mapping** (0.15 m/s speed, fast 1.0 rad/s turns)
-   - ✅ **Better coverage** (60° turns instead of 90° = follows walls more closely)
-   - ✅ **Random exploration** (30° turns every 5s to map unexplored areas)
+   - ✅ **Accurate mapping** (30° obstacle turns, 20° exploration turns)
+   - ✅ **Smart exploration** (turns toward unexplored areas, not random)
+   - ✅ **Better coverage** (15s between turns = robot explores more before changing direction)
    - ✅ **No collisions** (turns immediately, no backup phase)
    - ✅ **Corner escape** (180° turn when trapped)
+   - ✅ **Progress tracking** (logs X% explored)
 
-5. **Registration in setup.py:**
+6. **Registration in setup.py:**
    ```python
    entry_points={
        'console_scripts': [

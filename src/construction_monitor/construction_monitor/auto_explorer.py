@@ -4,8 +4,10 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
+from nav_msgs.msg import OccupancyGrid
 import random
 import math
+import numpy as np
 
 class AutoExplorer(Node):
     def __init__(self):
@@ -19,6 +21,14 @@ class AutoExplorer(Node):
             LaserScan,
             '/scan',
             self.scan_callback,
+            10
+        )
+
+        # Subscriber for map data (for frontier detection)
+        self.map_sub = self.create_subscription(
+            OccupancyGrid,
+            '/map',
+            self.map_callback,
             10
         )
 
@@ -37,10 +47,56 @@ class AutoExplorer(Node):
 
         # Random exploration to cover unmapped areas
         self.forward_counter = 0  # Count how long we've been going straight
-        self.max_forward_time = 50  # Turn after ~5 seconds of straight movement
+        self.max_forward_time = 150  # Turn after ~15 seconds of straight movement (explore more before turning)
+
+        # Frontier exploration data
+        self.map_data = None
+        self.map_info = None
+        self.frontier_direction = None  # Direction to nearest frontier (LEFT or RIGHT)
 
         self.get_logger().info('Auto Explorer Node Started!')
         self.get_logger().info(f'Obstacle avoidance distance: {self.obstacle_distance}m')
+        self.get_logger().info('Frontier detection: ENABLED')
+
+    def map_callback(self, msg):
+        """Process map data to find frontiers (unexplored areas)"""
+        self.map_data = msg.data
+        self.map_info = msg.info
+
+        # Find frontiers - edges between free space (0) and unknown (-1)
+        width = msg.info.width
+        height = msg.info.height
+        data = np.array(msg.data).reshape((height, width))
+
+        # Count unknown cells in different directions from map center
+        # This helps robot know which direction has more unexplored area
+        center_y = height // 2
+        center_x = width // 2
+
+        # Count unknown cells (-1) in left half vs right half
+        left_half = data[:, :center_x]
+        right_half = data[:, center_x:]
+
+        left_unknown = np.sum(left_half == -1)
+        right_unknown = np.sum(right_half == -1)
+
+        # Determine which direction has more unexplored area
+        if left_unknown > right_unknown + 100:  # Need significant difference
+            self.frontier_direction = 'LEFT'
+        elif right_unknown > left_unknown + 100:
+            self.frontier_direction = 'RIGHT'
+        else:
+            self.frontier_direction = None  # No clear direction, use random
+
+        # Log frontier info occasionally
+        if not hasattr(self, '_map_log_count'):
+            self._map_log_count = 0
+        self._map_log_count += 1
+        if self._map_log_count % 10 == 0:
+            total_cells = width * height
+            unknown_cells = np.sum(data == -1)
+            explored_percent = ((total_cells - unknown_cells) / total_cells) * 100
+            self.get_logger().info(f'Map: {explored_percent:.1f}% explored | Unknown L:{left_unknown} R:{right_unknown} | Go: {self.frontier_direction}')
 
     def scan_callback(self, msg):
         """Process laser scan data and make movement decisions"""
@@ -114,8 +170,8 @@ class AutoExplorer(Node):
                         self.state = 'TURN_RIGHT'
                         self.get_logger().info(f'Obstacle at {self.min_front_distance:.2f}m (R:{avg_right_dist:.2f}m > L:{avg_left_dist:.2f}m) - Turning RIGHT')
 
-                    # Set turn duration for SMALL 60 degree turn (more accurate mapping)
-                    self.turn_duration = random.uniform(0.9, 1.1)  # ~60 degrees (1.0 rad/s * 1.0s ≈ 60°)
+                    # Set turn duration for SMALL 30 degree turn (more accurate mapping)
+                    self.turn_duration = random.uniform(0.4, 0.6)  # ~30 degrees (1.0 rad/s * 0.5s ≈ 30°)
 
                 self.turn_start_time = self.get_clock().now()
                 self.forward_counter = 0  # Reset forward counter after turning
@@ -124,15 +180,24 @@ class AutoExplorer(Node):
                 cmd.linear.x = self.linear_speed
                 cmd.angular.z = 0.0
 
-                # Random exploration: turn slightly every ~5 seconds to explore new areas
+                # Smart exploration: turn toward unexplored areas every ~8 seconds
                 self.forward_counter += 1
                 if self.forward_counter >= self.max_forward_time:
-                    # Randomly turn left or right to explore unmapped areas
-                    self.state = random.choice(['TURN_LEFT', 'TURN_RIGHT'])
-                    self.turn_duration = random.uniform(0.4, 0.6)  # Small 30° turn
+                    # Use frontier direction if available, otherwise random
+                    if self.frontier_direction == 'LEFT':
+                        self.state = 'TURN_LEFT'
+                        self.get_logger().info('Frontier turn LEFT - more unexplored area on left')
+                    elif self.frontier_direction == 'RIGHT':
+                        self.state = 'TURN_RIGHT'
+                        self.get_logger().info('Frontier turn RIGHT - more unexplored area on right')
+                    else:
+                        # No clear frontier, turn randomly
+                        self.state = random.choice(['TURN_LEFT', 'TURN_RIGHT'])
+                        self.get_logger().info('Random exploration turn - no clear frontier')
+
+                    self.turn_duration = random.uniform(0.25, 0.35)  # Small 20° turn (gentle direction change)
                     self.turn_start_time = self.get_clock().now()
                     self.forward_counter = 0
-                    self.get_logger().info(f'Random exploration turn - exploring new area')
 
         elif self.state == 'TURN_LEFT':
             cmd.linear.x = 0.0
