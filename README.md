@@ -159,9 +159,9 @@ ros2 launch construction_monitor construction_world.launch.py
            # Robot states: FORWARD, TURN_LEFT, TURN_RIGHT (NO BACKUP STATE)
            self.state = 'FORWARD'
 
-           # Parameters (OPTIMIZED FOR ACCURATE MAPPING)
-           self.obstacle_distance = 1.8   # React early at 1.8m
-           self.linear_speed = 0.15       # Fast forward speed
+           # Parameters (OPTIMIZED FOR NARROW PATH NAVIGATION)
+           self.obstacle_distance = 1.0   # React at 1.0m (allows narrow paths)
+           self.linear_speed = 0.12       # Slower speed for safety in tight spaces
            self.angular_speed = 1.0       # Fast turning
 
            # Frontier exploration (SMART - turns toward unexplored areas)
@@ -170,7 +170,7 @@ ros2 launch construction_monitor construction_world.launch.py
            self.frontier_direction = None # LEFT, RIGHT, or None (from map analysis)
    ```
 
-3. **Obstacle Avoidance Logic (OPTIMIZED FOR ACCURACY):**
+3. **Obstacle Avoidance Logic (OPTIMIZED FOR NARROW PATHS):**
    - **Step 1:** Analyze laser scan data
      - **Front sector:** Indices 315-360 and 0-45 (90° centered at 0° = FRONT)
        - Index 0 = FRONT (along +X axis, confirmed by official TurtleBot3 docs)
@@ -186,11 +186,12 @@ ros2 launch construction_monitor construction_world.launch.py
      - `avg_right_dist` = average distance on right side
 
    - **Step 4:** Make intelligent decisions
-     - If `min_front_distance < 1.8m` → Obstacle detected!
-       - **Corner detection:** If left AND right < 0.8m → 180° turn to escape
-       - **Normal obstacle:** Turn 30° toward side with more space (SMALL & ACCURATE)
+     - **EMERGENCY STOP:** If `min_front_distance < 0.3m` → Stop immediately + 180° turn
+     - If `min_front_distance < 1.0m` → Obstacle detected! (smaller distance allows narrow paths)
+       - **Corner detection:** If left AND right < 0.6m → 180° turn to escape
+       - **Normal obstacle:** Turn 45° toward side with more space (CONSISTENT)
      - If moving straight for 15+ seconds → Turn 20° toward unexplored area (frontier detection)
-     - Else → Move FORWARD at 0.15 m/s
+     - Else → Move FORWARD at 0.12 m/s (slower for safety)
 
 4. **Frontier Detection (SMART EXPLORATION):**
    - Subscribes to `/map` topic from SLAM Toolbox
@@ -199,17 +200,19 @@ ros2 launch construction_monitor construction_world.launch.py
    - Robot turns toward side with MORE unexplored area
    - Logs exploration progress: `Map: X% explored`
 
-5. **Movement Flow (OPTIMIZED FOR ACCURACY & COVERAGE):**
+5. **Movement Flow (OPTIMIZED FOR NARROW PATH NAVIGATION):**
    ```
-   START → FORWARD state → Move forward at 0.15 m/s
+   START → FORWARD state → Move forward at 0.12 m/s (slower for safety)
           ↓
-   Obstacle detected at 1.8m (EARLY DETECTION)
+   Obstacle detected at 1.0m (LATE DETECTION - allows narrow paths)
           ↓
-   Check if CORNER (both sides < 0.8m)?
+   EMERGENCY STOP if < 0.3m → Immediate 180° turn
+          ↓
+   Check if CORNER (both sides < 0.6m)?
           ↓ Yes                        ↓ No
    180° turn (3.14s)         Compare left vs right space
           ↓                            ↓
-   Turn complete              30° turn (0.5s) - SMALL & ACCURATE
+   Turn complete              45° turn (0.7-0.8s) - CONSISTENT
           ↓                            ↓
    Back to FORWARD ←──────────┘
           ↓
@@ -219,11 +222,12 @@ ros2 launch construction_monitor construction_world.launch.py
    ```
 
    **Key improvements:**
-   - ✅ **Accurate mapping** (30° obstacle turns, 20° exploration turns)
+   - ✅ **Narrow path navigation** (1.0m detection allows entering tight spaces)
+   - ✅ **Emergency stop** (0.3m safety threshold prevents wall collisions)
+   - ✅ **Slower speed** (0.12 m/s for safer navigation in tight spaces)
+   - ✅ **Consistent turns** (45° obstacle turns, 20° exploration turns)
    - ✅ **Smart exploration** (turns toward unexplored areas, not random)
-   - ✅ **Better coverage** (15s between turns = robot explores more before changing direction)
-   - ✅ **No collisions** (turns immediately, no backup phase)
-   - ✅ **Corner escape** (180° turn when trapped)
+   - ✅ **Corner escape** (180° turn when trapped on both sides)
    - ✅ **Progress tracking** (logs X% explored)
 
 6. **Registration in setup.py:**
@@ -284,15 +288,16 @@ ros2 run construction_monitor auto_explorer
 ```
 
 **What you should see:**
-- **Gazebo:** Robot moving FAST (0.15 m/s), making small 60° turns near walls, random 30° exploration turns
+- **Gazebo:** Robot moving at 0.12 m/s, making 45° turns near walls, 20° exploration turns
 - **Terminal 4:** Log messages like:
-  - "Auto Explorer Node Started! Obstacle avoidance distance: 1.8m"
-  - "Min front distance: 2.50m (threshold: 1.8m)"
-  - "Obstacle at 1.75m (L:2.30m > R:1.10m) - Turning LEFT"
+  - "Auto Explorer Node Started! Obstacle avoidance distance: 1.0m"
+  - "Min front distance: 2.50m (threshold: 1.0m)"
+  - "Obstacle at 0.95m - Turn LEFT (L:2.30m > R:1.10m)"
   - "Turn complete - Moving FORWARD"
-  - "Random exploration turn - exploring new area"
-  - "CORNER DETECTED! (L:0.45m R:0.52m F:0.88m) - 180° turn"
-- **RViz2:** Map of construction site being built FAST with comprehensive coverage
+  - "Frontier turn LEFT - more unexplored area on left"
+  - "CORNER! (L:0.45m R:0.52m F:0.88m) - 180° turn"
+  - "EMERGENCY STOP! Wall at 0.28m"
+- **RViz2:** Map of construction site being built with good coverage of narrow paths
 
 **Files created:**
 - [slam_config.rviz](src/construction_monitor/config/slam_config.rviz) - Pre-configured RViz2 settings
@@ -508,4 +513,4 @@ export TURTLEBOT3_MODEL=burger
 
 ---
 
-**Last Updated:** 2025-12-09
+**Last Updated:** 2025-12-11

@@ -34,12 +34,12 @@ class AutoExplorer(Node):
 
         # Robot state
         self.state = 'FORWARD'  # States: FORWARD, TURN_LEFT, TURN_RIGHT (REMOVED BACKUP)
-        self.obstacle_distance = 1.8  # meters - React EARLY at 1.8m for maximum safety
+        self.obstacle_distance = 1.0  # meters - React at 1.0m (allows narrow path navigation)
         self.min_front_distance = float('inf')
 
         # Movement parameters
-        self.linear_speed = 0.15  # m/s - Faster for quicker exploration
-        self.angular_speed = 1.0  # rad/s - Very fast turning for efficiency
+        self.linear_speed = 0.12  # m/s - Slower for safer navigation in tight spaces
+        self.angular_speed = 1.0  # rad/s - Fast turning for efficiency
 
         # Timer for state changes
         self.turn_duration = 0
@@ -148,33 +148,45 @@ class AutoExplorer(Node):
         # Make movement decision
         cmd = Twist()
 
+        # EMERGENCY STOP - if too close to wall, stop immediately regardless of state
+        if self.min_front_distance < 0.3:
+            cmd.linear.x = 0.0
+            cmd.angular.z = 0.0
+            self.cmd_vel_pub.publish(cmd)
+            self.get_logger().warn(f'EMERGENCY STOP! Wall at {self.min_front_distance:.2f}m')
+            # Force 180 turn to escape
+            self.state = 'TURN_LEFT'
+            self.turn_duration = 3.14
+            self.turn_start_time = self.get_clock().now()
+            return  # Exit callback immediately
+
         if self.state == 'FORWARD':
             if self.min_front_distance < self.obstacle_distance:
-                # Obstacle ahead - START TURNING IMMEDIATELY (NO BACKUP)
+                # Obstacle detected at 1.0m - STOP and TURN immediately
 
-                # Check if robot is in a CORNER (walls on multiple sides)
-                corner_threshold = 0.8  # If both sides < 0.8m, it's a corner
+                # Check if robot is in a CORNER (walls on both sides)
+                corner_threshold = 0.6
                 is_in_corner = (avg_left_dist < corner_threshold and avg_right_dist < corner_threshold)
 
                 if is_in_corner:
-                    # CORNER DETECTED - do full 180 turn to escape
-                    self.state = 'TURN_LEFT'  # Always turn left for 180
-                    self.turn_duration = 3.14  # Turn for ~180 degrees (1.0 rad/s * 3.14s = π rad)
-                    self.get_logger().info(f'CORNER DETECTED! (L:{avg_left_dist:.2f}m R:{avg_right_dist:.2f}m F:{self.min_front_distance:.2f}m) - 180° turn')
+                    # CORNER - do 180° turn to escape
+                    self.state = 'TURN_LEFT'
+                    self.turn_duration = 3.14  # 180 degrees
+                    self.get_logger().info(f'CORNER! (L:{avg_left_dist:.2f}m R:{avg_right_dist:.2f}m F:{self.min_front_distance:.2f}m) - 180° turn')
                 else:
-                    # Normal obstacle - choose better direction and turn SMALL angle (60 degrees)
+                    # Turn toward side with more space
                     if avg_left_dist > avg_right_dist:
                         self.state = 'TURN_LEFT'
-                        self.get_logger().info(f'Obstacle at {self.min_front_distance:.2f}m (L:{avg_left_dist:.2f}m > R:{avg_right_dist:.2f}m) - Turning LEFT')
+                        self.get_logger().info(f'Obstacle at {self.min_front_distance:.2f}m - Turn LEFT (L:{avg_left_dist:.2f}m > R:{avg_right_dist:.2f}m)')
                     else:
                         self.state = 'TURN_RIGHT'
-                        self.get_logger().info(f'Obstacle at {self.min_front_distance:.2f}m (R:{avg_right_dist:.2f}m > L:{avg_left_dist:.2f}m) - Turning RIGHT')
+                        self.get_logger().info(f'Obstacle at {self.min_front_distance:.2f}m - Turn RIGHT (R:{avg_right_dist:.2f}m > L:{avg_left_dist:.2f}m)')
 
-                    # Set turn duration for SMALL 30 degree turn (more accurate mapping)
-                    self.turn_duration = random.uniform(0.4, 0.6)  # ~30 degrees (1.0 rad/s * 0.5s ≈ 30°)
+                    # Turn 45 degrees (simple, consistent)
+                    self.turn_duration = random.uniform(0.7, 0.8)  # ~45 degrees
 
                 self.turn_start_time = self.get_clock().now()
-                self.forward_counter = 0  # Reset forward counter after turning
+                self.forward_counter = 0
             else:
                 # Path is clear - move forward
                 cmd.linear.x = self.linear_speed
