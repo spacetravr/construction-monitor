@@ -318,6 +318,108 @@ ros2 run construction_monitor auto_explorer
 
 ---
 
+#### Step 6: Multi-Robot Namespace Support ✅
+**What we did:**
+- Modified the explorer to support ROS2 namespaces for multi-robot operation
+- Each robot gets its own namespace (robot1, robot2) to avoid topic conflicts
+
+**Files created:**
+- [auto_explorer_ns.py](src/construction_monitor/construction_monitor/auto_explorer_ns.py) - Namespace-aware explorer
+
+**Key concepts:**
+- Without namespaces: All robots publish/subscribe to `/cmd_vel`, `/scan`, `/odom`
+- With namespaces: Robot1 uses `/robot1/cmd_vel`, Robot2 uses `/robot2/cmd_vel`, etc.
+- This prevents robots from interfering with each other
+
+**Usage:**
+```bash
+ros2 run construction_monitor auto_explorer_ns --ros-args -p robot_namespace:=robot1
+ros2 run construction_monitor auto_explorer_ns --ros-args -p robot_namespace:=robot2
+```
+
+---
+
+#### Step 7: Two Robots Launch File ✅
+**What we did:**
+- Created a launch file that spawns two TurtleBot3 robots in the construction site
+- Robot1 spawns at position (-2.0, -3.0) - left side
+- Robot2 spawns at position (2.0, -3.0) - right side
+
+**Files created:**
+- [two_robots.launch.py](src/construction_monitor/launch/two_robots.launch.py) - Spawns two robots with namespaces
+
+**Usage:**
+```bash
+export TURTLEBOT3_MODEL=burger
+source ~/ros2_ws/install/setup.bash
+ros2 launch construction_monitor two_robots.launch.py
+```
+
+**Result:** Two robots appear in Gazebo, each with their own namespace.
+
+---
+
+#### Step 8: Zone-Based Exploration ✅
+**What we did:**
+- Created zone-aware explorer that keeps robots in assigned areas
+- Robot1 stays in LEFT zone (x < 0)
+- Robot2 stays in RIGHT zone (x > 0)
+- Prevents overlap, making exploration more efficient
+
+**Files created:**
+- [auto_explorer_zone.py](src/construction_monitor/construction_monitor/auto_explorer_zone.py) - Zone-aware autonomous explorer
+
+**Key features:**
+| Feature | Description |
+|---------|-------------|
+| Zone boundary | x = 0 divides left and right zones |
+| Boundary detection | 1.0m margin catches all approach angles |
+| Smart obstacle avoidance | Turns toward side with MORE free space |
+| Corner escape | 180° turn when trapped on both sides |
+| Return to zone | Automatically returns if crosses boundary |
+| Cooldown system | Prevents repeated boundary triggers |
+
+**Parameters:**
+```python
+self.obstacle_distance = 1.0   # Detect obstacles at 1.0m
+self.linear_speed = 0.15       # Safe speed for detection
+self.angular_speed = 1.0       # Turning speed
+self.zone_margin = 0.5         # Zone boundary margin
+```
+
+**Usage (3 terminals):**
+
+**Terminal 1: Launch two robots**
+```bash
+export TURTLEBOT3_MODEL=burger
+source ~/ros2_ws/install/setup.bash
+ros2 launch construction_monitor two_robots.launch.py
+```
+
+**Terminal 2: Robot1 (LEFT zone)**
+```bash
+source ~/ros2_ws/install/setup.bash
+ros2 run construction_monitor auto_explorer_zone --ros-args -p robot_namespace:=robot1 -p zone:=left
+```
+
+**Terminal 3: Robot2 (RIGHT zone)**
+```bash
+source ~/ros2_ws/install/setup.bash
+ros2 run construction_monitor auto_explorer_zone --ros-args -p robot_namespace:=robot2 -p zone:=right
+```
+
+**What you should see:**
+- **Gazebo:** Two robots exploring different halves of the construction site
+- **Terminal logs:**
+  - `[robot1] Zone: LEFT | Position: x=-1.50, y=2.30`
+  - `[robot2] Zone: RIGHT | Position: x=1.80, y=-1.20`
+  - `[robot1] Near boundary (x=-0.85) - Turning LEFT into zone`
+  - `[robot2] Obstacle - Turn LEFT (more space: L:2.30m > R:0.80m)`
+
+**Result:** Two robots efficiently explore separate zones without overlap!
+
+---
+
 ## Setup Instructions
 
 ### 1. Prerequisites
@@ -418,27 +520,32 @@ ros2 launch turtlebot3_bringup rviz2.launch.py
 
 ---
 
-## Project Structure (To Be Created)
+## Project Structure
 
 ```
 ros2_ws/
 ├── src/
 │   └── construction_monitor/
+│       ├── construction_monitor/
+│       │   ├── __init__.py
+│       │   ├── auto_explorer.py          # Single robot explorer
+│       │   ├── auto_explorer_ns.py       # Multi-robot with namespaces
+│       │   └── auto_explorer_zone.py     # Zone-based exploration ★
 │       ├── worlds/
 │       │   ├── construction_complete.world
 │       │   └── construction_incomplete.world
 │       ├── launch/
-│       │   ├── spawn_two_robots.launch.py
-│       │   └── mapping.launch.py
-│       ├── maps/
-│       │   ├── complete_map.yaml
-│       │   └── complete_map.pgm
-│       ├── scripts/
-│       │   ├── map_comparison.py
-│       │   └── progress_calculator.py
-│       └── config/
-│           └── navigation_params.yaml
+│       │   ├── construction_world.launch.py  # Single robot launch
+│       │   ├── one_robot_ns.launch.py        # One robot with namespace
+│       │   └── two_robots.launch.py          # Two robots launch ★
+│       ├── config/
+│       │   ├── slam_config.rviz
+│       │   └── slam_params.yaml
+│       ├── package.xml
+│       └── setup.py
 └── README.md
+
+★ = Currently used files
 ```
 
 ---
@@ -447,14 +554,15 @@ ros2_ws/
 
 - [x] Step 1: Install TurtleBot3 packages
 - [x] Step 2: Test single robot in empty world
-- [ ] Step 3: Test teleop control
-- [ ] Step 4: Create construction site world in Gazebo
-- [ ] Step 5: Test SLAM mapping with one robot
-- [ ] Step 6: Save complete reference map
-- [ ] Step 7: Spawn two robots in Gazebo
-- [ ] Step 8: Configure robots to navigate different areas
-- [ ] Step 9: Implement map comparison algorithm
-- [ ] Step 10: Calculate progress percentage
+- [x] Step 3: Test teleop control
+- [x] Step 4: Create construction site world in Gazebo
+- [x] Step 5: Test SLAM mapping with one robot (auto_explorer.py)
+- [x] Step 6: Multi-robot namespace support (auto_explorer_ns.py)
+- [x] Step 7: Two robots launch file (two_robots.launch.py)
+- [x] Step 8: Zone-based exploration (auto_explorer_zone.py)
+- [ ] Step 9: Multi-robot SLAM with shared map
+- [ ] Step 10: Real-time exploration percentage display
+- [ ] Step 11: Construction progress comparison (vs reference map)
 
 ---
 
@@ -526,3 +634,24 @@ export TURTLEBOT3_MODEL=burger
 ---
 
 **Last Updated:** 2025-12-12
+
+---
+
+## Quick Start (Current Version)
+
+Run the full two-robot zone exploration:
+
+```bash
+# Terminal 1: Launch simulation
+export TURTLEBOT3_MODEL=burger
+source ~/ros2_ws/install/setup.bash
+ros2 launch construction_monitor two_robots.launch.py
+
+# Terminal 2: Robot1 (LEFT zone)
+source ~/ros2_ws/install/setup.bash
+ros2 run construction_monitor auto_explorer_zone --ros-args -p robot_namespace:=robot1 -p zone:=left
+
+# Terminal 3: Robot2 (RIGHT zone)
+source ~/ros2_ws/install/setup.bash
+ros2 run construction_monitor auto_explorer_zone --ros-args -p robot_namespace:=robot2 -p zone:=right
+```

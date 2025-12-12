@@ -26,6 +26,8 @@ setup(
     entry_points={
         'console_scripts': [
             'auto_explorer = construction_monitor.auto_explorer:main',
+            'auto_explorer_ns = construction_monitor.auto_explorer_ns:main',
+            'auto_explorer_zone = construction_monitor.auto_explorer_zone:main',
         ],
     },
 )
