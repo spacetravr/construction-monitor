@@ -15,6 +15,8 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'worlds'), glob('worlds/*.world')),
         (os.path.join('share', package_name, 'config'), glob('config/*')),
+        (os.path.join('share', package_name, 'models', 'robot1'), glob('models/robot1/*')),
+        (os.path.join('share', package_name, 'models', 'robot2'), glob('models/robot2/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -28,6 +30,8 @@ setup(
             'auto_explorer = construction_monitor.auto_explorer:main',
             'auto_explorer_ns = construction_monitor.auto_explorer_ns:main',
             'auto_explorer_zone = construction_monitor.auto_explorer_zone:main',
+            'map_merger = construction_monitor.map_merger:main',
+            'tf_relay = construction_monitor.tf_relay:main',
         ],
     },
 )
