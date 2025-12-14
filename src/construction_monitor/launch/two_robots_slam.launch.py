@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Step 9: Two Robots with SLAM - Map Merging
+Two Robots with SLAM - Map Merging for Construction Progress Monitoring
 
 This launch file:
 1. Spawns two TurtleBot3 robots with NAMESPACED TF frames
@@ -19,14 +19,15 @@ Topics:
   /map        - Merged map from both robots
 
 Usage:
-  ros2 launch construction_monitor two_robots_slam.launch.py
-  ros2 launch construction_monitor two_robots_slam.launch.py world:=my_house
-  ros2 launch construction_monitor two_robots_slam.launch.py world:=my_house_70
+  # Complete world (for creating blueprint)
+  CONSTRUCTION_WORLD=my_house_small ros2 launch construction_monitor two_robots_slam.launch.py
+
+  # 70% incomplete world (for measuring progress)
+  CONSTRUCTION_WORLD=my_house_small_70 ros2 launch construction_monitor two_robots_slam.launch.py
 
 Available worlds:
-  - construction_incomplete (default, 10m x 10m)
-  - my_house (20m x 20m)
-  - my_house_70 (20m x 20m, 70% complete)
+  - my_house_small (default, 15m x 15m, complete construction)
+  - my_house_small_70 (15m x 15m, 70% complete)
 
 Then in separate terminals to start exploration:
   ros2 run construction_monitor auto_explorer_zone --ros-args -p robot_namespace:=robot1 -p zone:=left
@@ -83,12 +84,11 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
 
     # World selection via environment variable CONSTRUCTION_WORLD
-    # Options: construction_incomplete (default), my_house, my_house_70
-    world_name = os.environ.get('CONSTRUCTION_WORLD', 'construction_incomplete')
+    # Options: my_house_small (default, complete), my_house_small_70 (70% complete)
+    world_name = os.environ.get('CONSTRUCTION_WORLD', 'my_house_small')
 
     # World configurations: world_name -> (world_file, robot1_x, robot2_x, robot_y, world_size)
     world_configs = {
-        'construction_incomplete': ('construction_incomplete.world', -2.0, 2.0, -3.0, 10.0),
         'my_house_small': ('my_house_small.world', -3.75, 3.75, -5.0, 15.0),
         'my_house_small_70': ('my_house_small_70.world', -3.75, 3.75, -5.0, 15.0),
     }
@@ -97,8 +97,8 @@ def generate_launch_description():
     if world_name in world_configs:
         world_filename, robot1_x, robot2_x, robot_y, world_size = world_configs[world_name]
     else:
-        print(f"Warning: Unknown world '{world_name}', using construction_incomplete")
-        world_filename, robot1_x, robot2_x, robot_y, world_size = world_configs['construction_incomplete']
+        print(f"Warning: Unknown world '{world_name}', using my_house_small")
+        world_filename, robot1_x, robot2_x, robot_y, world_size = world_configs['my_house_small']
 
     world_file = os.path.join(construction_monitor_dir, 'worlds', world_filename)
     print(f"=== Loading world: {world_name} ({world_size}m x {world_size}m) ===")
