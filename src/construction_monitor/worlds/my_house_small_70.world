@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <sdf version="1.6">
-  <world name="construction_complete">
+  <world name="my_house_small_70">
 
     <!-- Physics -->
     <physics type="ode">
@@ -19,25 +19,24 @@
       <uri>model://ground_plane</uri>
     </include>
 
-    <!-- Construction Site Outer Walls -->
-    <!-- Wall 1: North wall -->
+    <!-- ==========================
+         Construction Site - 15m x 15m
+         70% INCOMPLETE VERSION
+         Missing: 2 inner walls, 2 pillars
+       ========================== -->
+
+    <!-- ========== 4 OUTER WALLS (15m x 15m perimeter) - ALL COMPLETE ========== -->
+
+    <!-- North wall -->
     <model name="wall_north">
       <static>true</static>
-      <pose>0 5 0.5 0 0 0</pose>
+      <pose>0 7.5 0.5 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry>
-            <box>
-              <size>10 0.2 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>15 0.2 1</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry>
-            <box>
-              <size>10 0.2 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>15 0.2 1</size></box></geometry>
           <material>
             <ambient>0.7 0.7 0.7 1</ambient>
             <diffuse>0.7 0.7 0.7 1</diffuse>
@@ -46,24 +45,16 @@
       </link>
     </model>
 
-    <!-- Wall 2: South wall -->
+    <!-- South wall -->
     <model name="wall_south">
       <static>true</static>
-      <pose>0 -5 0.5 0 0 0</pose>
+      <pose>0 -7.5 0.5 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry>
-            <box>
-              <size>10 0.2 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>15 0.2 1</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry>
-            <box>
-              <size>10 0.2 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>15 0.2 1</size></box></geometry>
           <material>
             <ambient>0.7 0.7 0.7 1</ambient>
             <diffuse>0.7 0.7 0.7 1</diffuse>
@@ -72,24 +63,16 @@
       </link>
     </model>
 
-    <!-- Wall 3: East wall -->
+    <!-- East wall -->
     <model name="wall_east">
       <static>true</static>
-      <pose>5 0 0.5 0 0 0</pose>
+      <pose>7.5 0 0.5 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry>
-            <box>
-              <size>0.2 10 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>0.2 15 1</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry>
-            <box>
-              <size>0.2 10 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>0.2 15 1</size></box></geometry>
           <material>
             <ambient>0.7 0.7 0.7 1</ambient>
             <diffuse>0.7 0.7 0.7 1</diffuse>
@@ -98,24 +81,16 @@
       </link>
     </model>
 
-    <!-- Wall 4: West wall -->
+    <!-- West wall -->
     <model name="wall_west">
       <static>true</static>
-      <pose>-5 0 0.5 0 0 0</pose>
+      <pose>-7.5 0 0.5 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry>
-            <box>
-              <size>0.2 10 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>0.2 15 1</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry>
-            <box>
-              <size>0.2 10 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>0.2 15 1</size></box></geometry>
           <material>
             <ambient>0.7 0.7 0.7 1</ambient>
             <diffuse>0.7 0.7 0.7 1</diffuse>
@@ -124,24 +99,18 @@
       </link>
     </model>
 
-    <!-- Inner Room 1 walls (Complete) -->
-    <model name="room1_wall1">
+    <!-- ========== 2 of 4 INNER WALLS (2 missing) ========== -->
+
+    <!-- Inner wall 1 - vertical, left side - BUILT -->
+    <model name="inner_wall_1">
       <static>true</static>
-      <pose>-2 0 0.5 0 0 0</pose>
+      <pose>-4 2 0.5 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry>
-            <box>
-              <size>0.2 4 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>0.2 3 1</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry>
-            <box>
-              <size>0.2 4 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>0.2 3 1</size></box></geometry>
           <material>
             <ambient>0.8 0.6 0.4 1</ambient>
             <diffuse>0.8 0.6 0.4 1</diffuse>
@@ -150,23 +119,16 @@
       </link>
     </model>
 
-    <model name="room1_wall2">
+    <!-- Inner wall 2 - horizontal, top area - BUILT -->
+    <model name="inner_wall_2">
       <static>true</static>
-      <pose>-3.5 2 0.5 0 0 1.5708</pose>
+      <pose>2 4 0.5 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry>
-            <box>
-              <size>0.2 3 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>3 0.2 1</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry>
-            <box>
-              <size>0.2 3 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>3 0.2 1</size></box></geometry>
           <material>
             <ambient>0.8 0.6 0.4 1</ambient>
             <diffuse>0.8 0.6 0.4 1</diffuse>
@@ -175,56 +137,49 @@
       </link>
     </model>
 
-    <!-- Inner Room 2 walls (Complete) -->
-    <model name="room2_wall1">
+    <!-- Inner wall 3 - MISSING (not built yet) -->
+    <!-- Inner wall 4 - MISSING (not built yet) -->
+
+    <!-- ========== 2 of 4 PILLARS (2 missing) ========== -->
+
+    <!-- Pillar 1 - top left area - BUILT -->
+    <model name="pillar_1">
       <static>true</static>
-      <pose>2 0 0.5 0 0 0</pose>
+      <pose>-2 2 0.5 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry>
-            <box>
-              <size>0.2 4 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>0.4 0.4 1</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry>
-            <box>
-              <size>0.2 4 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>0.4 0.4 1</size></box></geometry>
           <material>
-            <ambient>0.8 0.6 0.4 1</ambient>
-            <diffuse>0.8 0.6 0.4 1</diffuse>
+            <ambient>0.6 0.4 0.2 1</ambient>
+            <diffuse>0.6 0.4 0.2 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
 
-    <model name="room2_wall2">
+    <!-- Pillar 2 - top right area - BUILT -->
+    <model name="pillar_2">
       <static>true</static>
-      <pose>3.5 -2 0.5 0 0 1.5708</pose>
+      <pose>2 2 0.5 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry>
-            <box>
-              <size>0.2 3 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>0.4 0.4 1</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry>
-            <box>
-              <size>0.2 3 1</size>
-            </box>
-          </geometry>
+          <geometry><box><size>0.4 0.4 1</size></box></geometry>
           <material>
-            <ambient>0.8 0.6 0.4 1</ambient>
-            <diffuse>0.8 0.6 0.4 1</diffuse>
+            <ambient>0.6 0.4 0.2 1</ambient>
+            <diffuse>0.6 0.4 0.2 1</diffuse>
           </material>
         </visual>
       </link>
     </model>
+
+    <!-- Pillar 3 - MISSING (not built yet) -->
+    <!-- Pillar 4 - MISSING (not built yet) -->
 
   </world>
 </sdf>

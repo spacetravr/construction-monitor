@@ -20,6 +20,13 @@ Topics:
 
 Usage:
   ros2 launch construction_monitor two_robots_slam.launch.py
+  ros2 launch construction_monitor two_robots_slam.launch.py world:=my_house
+  ros2 launch construction_monitor two_robots_slam.launch.py world:=my_house_70
+
+Available worlds:
+  - construction_incomplete (default, 10m x 10m)
+  - my_house (20m x 20m)
+  - my_house_70 (20m x 20m, 70% complete)
 
 Then in separate terminals to start exploration:
   ros2 run construction_monitor auto_explorer_zone --ros-args -p robot_namespace:=robot1 -p zone:=left
@@ -32,7 +39,7 @@ View in RViz:
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, TimerAction, SetEnvironmentVariable
+from launch.actions import IncludeLaunchDescription, TimerAction, SetEnvironmentVariable, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -75,8 +82,26 @@ def generate_launch_description():
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
 
-    # World file
-    world_file = os.path.join(construction_monitor_dir, 'worlds', 'construction_incomplete.world')
+    # World selection via environment variable CONSTRUCTION_WORLD
+    # Options: construction_incomplete (default), my_house, my_house_70
+    world_name = os.environ.get('CONSTRUCTION_WORLD', 'construction_incomplete')
+
+    # World configurations: world_name -> (world_file, robot1_x, robot2_x, robot_y, world_size)
+    world_configs = {
+        'construction_incomplete': ('construction_incomplete.world', -2.0, 2.0, -3.0, 10.0),
+        'my_house_small': ('my_house_small.world', -3.75, 3.75, -5.0, 15.0),
+        'my_house_small_70': ('my_house_small_70.world', -3.75, 3.75, -5.0, 15.0),
+    }
+
+    # Get world configuration
+    if world_name in world_configs:
+        world_filename, robot1_x, robot2_x, robot_y, world_size = world_configs[world_name]
+    else:
+        print(f"Warning: Unknown world '{world_name}', using construction_incomplete")
+        world_filename, robot1_x, robot2_x, robot_y, world_size = world_configs['construction_incomplete']
+
+    world_file = os.path.join(construction_monitor_dir, 'worlds', world_filename)
+    print(f"=== Loading world: {world_name} ({world_size}m x {world_size}m) ===")
 
     # Set Gazebo model path to include turtlebot3 models
     turtlebot3_gazebo_dir = get_package_share_directory('turtlebot3_gazebo')
@@ -109,8 +134,8 @@ def generate_launch_description():
         arguments=[
             '-entity', 'robot1',
             '-file', robot1_sdf,
-            '-x', '-2.0',
-            '-y', '-3.0',
+            '-x', str(robot1_x),
+            '-y', str(robot_y),
             '-z', '0.01',
         ]
     )
@@ -166,8 +191,8 @@ def generate_launch_description():
         arguments=[
             '-entity', 'robot2',
             '-file', robot2_sdf,
-            '-x', '2.0',
-            '-y', '-3.0',
+            '-x', str(robot2_x),
+            '-y', str(robot_y),
             '-z', '0.01',
         ]
     )
@@ -221,17 +246,21 @@ def generate_launch_description():
         executable='map_merger',
         name='map_merger',
         output='screen',
-        parameters=[{'use_sim_time': True}]
+        parameters=[{
+            'use_sim_time': True,
+            'world_size': world_size,  # Pass world size for correct % calculation
+        }]
     )
 
     # ========== STATIC TF: Connect map frames to world ==========
     # Both robots' map frames are connected to a common 'world' frame
-    # This allows RViz to display both robots in the same visualization
+    # The offset matches the robot spawn position so the map aligns with world coordinates
+    # Robot1 spawns at (robot1_x, robot_y), Robot2 spawns at (robot2_x, robot_y)
     world_to_robot1_map = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         name='world_to_robot1_map',
-        arguments=['0', '0', '0', '0', '0', '0', 'world', 'robot1/map'],
+        arguments=[str(robot1_x), str(robot_y), '0', '0', '0', '0', 'world', 'robot1/map'],
         parameters=[{'use_sim_time': True}]
     )
 
@@ -239,7 +268,7 @@ def generate_launch_description():
         package='tf2_ros',
         executable='static_transform_publisher',
         name='world_to_robot2_map',
-        arguments=['0', '0', '0', '0', '0', '0', 'world', 'robot2/map'],
+        arguments=[str(robot2_x), str(robot_y), '0', '0', '0', '0', 'world', 'robot2/map'],
         parameters=[{'use_sim_time': True}]
     )
 

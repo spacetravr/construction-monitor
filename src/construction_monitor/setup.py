@@ -27,11 +27,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'auto_explorer = construction_monitor.auto_explorer:main',
-            'auto_explorer_ns = construction_monitor.auto_explorer_ns:main',
             'auto_explorer_zone = construction_monitor.auto_explorer_zone:main',
             'map_merger = construction_monitor.map_merger:main',
-            'tf_relay = construction_monitor.tf_relay:main',
+            'construction_progress = construction_monitor.construction_progress:main',
         ],
     },
 )
