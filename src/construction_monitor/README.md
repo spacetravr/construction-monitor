@@ -9,9 +9,9 @@ This project deploys two TurtleBot3 Burger robots to autonomously scan a constru
 ## Features
 
 - **Multi-Robot SLAM**: Two robots with namespaced TF frames for conflict-free mapping
-- **Zone-Based Exploration**: Left robot (x < 0) and right robot (x > 0) with boundary detection
-- **Real-Time Map Merging**: Combines maps from both robots into unified `/map`
-- **Construction Progress**: Compares scanned map with blueprint to calculate completion %
+- **Zone-Based Exploration**: Left robot (x < 0) and right robot (x > 0) with odom-based boundary detection
+- **Real-Time Map Merging**: Combines maps using coordinate transformation with NumPy-optimized operations
+- **Construction Progress**: Compares scanned map with blueprint using centroid-based alignment (handles SLAM drift)
 - **Collision Avoidance**: TF-based robot-to-robot collision detection and avoidance
 - **Auto-Save**: Automatically saves map when exploration threshold is reached
 
@@ -116,16 +116,35 @@ world
 ### auto_explorer_zone
 - `robot_namespace`: Robot namespace (robot1 or robot2)
 - `zone`: Exploration zone (left or right)
-- `obstacle_distance`: Distance to trigger obstacle avoidance (default: 0.4m)
+- `spawn_offset`: Distance from center the robot spawns (default: 3.75m for 15m world)
+- `obstacle_distance`: Distance to trigger obstacle avoidance (default: 0.6m)
 
 ### map_merger
-- `world_size`: World size in meters for % calculation (default: 10.0)
+- `world_size`: World size in meters for % calculation (default: 15.0)
 - `save_threshold`: Auto-save at this exploration % (default: 95.0)
 - `save_path`: Directory to save maps (default: ~/construction_maps)
 
 ### construction_progress
 - `blueprint_map`: Path to blueprint .yaml file
 - `update_interval`: How often to calculate progress (default: 5.0s)
+
+## Technical Details
+
+### Map Merger Algorithm
+The map merger uses proper coordinate transformation:
+1. Reads each robot's map origin from `map.info.origin.position`
+2. Calculates world-frame bounding box containing both maps
+3. Transforms each map's cells to correct world positions using offsets
+4. Merge logic: Wall (100) > Free (0) > Unknown (-1)
+5. Uses NumPy vectorized operations for ~100x faster processing
+
+### Construction Progress Comparison
+Uses centroid-based alignment to handle SLAM origin drift between sessions:
+1. Calculates centroid (center of mass) of all walls in scanned map
+2. Calculates centroid of all walls in blueprint
+3. Computes offset to align the two centroids
+4. Compares wall positions with ±3 cell tolerance
+5. Reports: `walls_found / blueprint_walls * 100%`
 
 ## License
 
