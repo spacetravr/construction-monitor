@@ -149,7 +149,10 @@ class ConstructionProgress(Node):
         self.current_map = msg
 
     def calculate_progress(self):
-        """Compare current scanned map with blueprint to calculate construction progress"""
+        """Compare current scanned map with blueprint to calculate construction progress
+
+        Uses centroid-based alignment to handle SLAM origin drift between sessions.
+        """
         if not self.blueprint_loaded:
             self.get_logger().warn('Blueprint not loaded - cannot calculate progress', throttle_duration_sec=10.0)
             return
@@ -172,17 +175,47 @@ class ConstructionProgress(Node):
         bp_width = self.blueprint_info['width']
         bp_height = self.blueprint_info['height']
 
-        # Count matching walls
+        # Find walls in scanned map and calculate centroid
+        scan_walls = []
+        map_2d = map_data.reshape((map_height, map_width))
+        wall_positions = np.where(map_2d == 100)
+        for y, x in zip(wall_positions[0], wall_positions[1]):
+            # Convert to world coordinates
+            world_x = map_origin_x + (x + 0.5) * map_resolution
+            world_y = map_origin_y + (y + 0.5) * map_resolution
+            scan_walls.append((world_x, world_y))
+
+        if len(scan_walls) < 10:
+            self.get_logger().info('Not enough walls scanned yet...', throttle_duration_sec=5.0)
+            return
+
+        # Calculate scanned map wall centroid
+        scan_centroid_x = sum(w[0] for w in scan_walls) / len(scan_walls)
+        scan_centroid_y = sum(w[1] for w in scan_walls) / len(scan_walls)
+
+        # Calculate blueprint wall centroid (in world coordinates)
+        bp_world_walls = []
+        for (bp_x, bp_y) in self.blueprint_walls:
+            world_x = bp_origin[0] + (bp_x + 0.5) * bp_resolution
+            world_y = bp_origin[1] + ((bp_height - 1 - bp_y) + 0.5) * bp_resolution
+            bp_world_walls.append((world_x, world_y))
+
+        bp_centroid_x = sum(w[0] for w in bp_world_walls) / len(bp_world_walls)
+        bp_centroid_y = sum(w[1] for w in bp_world_walls) / len(bp_world_walls)
+
+        # Calculate offset to align centroids
+        offset_x = scan_centroid_x - bp_centroid_x
+        offset_y = scan_centroid_y - bp_centroid_y
+
+        # Count matching walls using aligned coordinates
         walls_found = 0
         walls_expected = len(self.blueprint_walls)
-        walls_scanned = 0  # Walls detected in scan that match blueprint position
 
         # For each wall in the blueprint, check if it exists in the scanned map
         for (bp_x, bp_y) in self.blueprint_walls:
-            # Convert blueprint cell to world coordinates
-            # Note: PGM y-axis is flipped (0 is top, but in ROS y increases upward)
-            world_x = bp_origin[0] + (bp_x + 0.5) * bp_resolution
-            world_y = bp_origin[1] + ((bp_height - 1 - bp_y) + 0.5) * bp_resolution
+            # Convert blueprint cell to world coordinates and apply alignment offset
+            world_x = bp_origin[0] + (bp_x + 0.5) * bp_resolution + offset_x
+            world_y = bp_origin[1] + ((bp_height - 1 - bp_y) + 0.5) * bp_resolution + offset_y
 
             # Convert world coordinates to scanned map cell
             scan_x = int((world_x - map_origin_x) / map_resolution)
@@ -190,13 +223,10 @@ class ConstructionProgress(Node):
 
             # Check if within scanned map bounds
             if 0 <= scan_x < map_width and 0 <= scan_y < map_height:
-                idx = scan_y * map_width + scan_x
-                cell_value = map_data[idx]
-
                 # Check neighboring cells too (tolerance for alignment differences)
                 found = False
-                for dx in range(-2, 3):
-                    for dy in range(-2, 3):
+                for dx in range(-3, 4):  # Increased tolerance to ±3 cells
+                    for dy in range(-3, 4):
                         nx, ny = scan_x + dx, scan_y + dy
                         if 0 <= nx < map_width and 0 <= ny < map_height:
                             nidx = ny * map_width + nx

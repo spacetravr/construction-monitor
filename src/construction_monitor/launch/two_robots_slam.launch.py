@@ -253,9 +253,15 @@ def generate_launch_description():
     )
 
     # ========== STATIC TF: Connect map frames to world ==========
-    # Both robots' map frames are connected to a common 'world' frame
-    # The offset matches the robot spawn position so the map aligns with world coordinates
-    # Robot1 spawns at (robot1_x, robot_y), Robot2 spawns at (robot2_x, robot_y)
+    # world frame = Gazebo world origin (0,0)
+    # robot1/map frame = SLAM map origin (starts at 0,0 in robot's local frame)
+    #
+    # The offset here should be the robot's spawn position so that:
+    #   world -> robot1/map -> robot1/odom -> robot1/base_footprint
+    # gives the actual Gazebo world coordinates.
+    #
+    # Robot1 spawns at Gazebo world (-3.75, -5.0), SLAM map starts at (0,0)
+    # So world -> robot1/map offset = (-3.75, -5.0)
     world_to_robot1_map = Node(
         package='tf2_ros',
         executable='static_transform_publisher',

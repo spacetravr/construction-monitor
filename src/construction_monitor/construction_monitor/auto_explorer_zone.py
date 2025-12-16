@@ -90,14 +90,19 @@ class AutoExplorerZone(Node):
         )
         self.exploration_stopped = False
 
-        # Robot position
+        # Robot position (from odom)
         self.robot_x = 0.0
         self.robot_y = 0.0
         self.robot_yaw = 0.0
 
+        # Initial odom position - captured on first odom message
+        # Used to calculate world position correctly
+        self.initial_odom_x = None
+        self.initial_odom_y = None
+
         # Robot state
         self.state = 'FORWARD'
-        self.obstacle_distance = 1.0  # Back to 1.0m for better detection
+        self.obstacle_distance = 0.6  # Reduced to 0.6m to explore tighter spaces
         self.min_front_distance = float('inf')
 
         # Movement parameters
@@ -112,11 +117,18 @@ class AutoExplorerZone(Node):
         self.forward_counter = 0
         self.max_forward_time = 150
 
+        # Center exploration - periodically drive toward zone center
+        # Less frequent to allow more wall-following exploration
+        self.center_explore_timer = self.get_clock().now()
+        self.center_explore_interval = 90.0  # Every 90 seconds (was 30)
+        self.center_explore_active = False
+        self.center_explore_start_time = None
+
         # Zone boundary configuration
         # spawn_offset = how far from center (world x=0) the robot spawns
-        # For 10m world: robots spawn at x=-2 and x=+2, so spawn_offset=2.0
+        # For my_house_small (15m world): robots spawn at x=-3.75 and x=+3.75, so spawn_offset=3.75
         # For 20m world: robots spawn at x=-5 and x=+5, so spawn_offset=5.0
-        self.declare_parameter('spawn_offset', 2.0)
+        self.declare_parameter('spawn_offset', 3.75)  # Default for my_house_small (15m world)
         self.spawn_offset = self.get_parameter('spawn_offset').get_parameter_value().double_value
 
         # IMPORTANT: Odometry starts at (0,0) at spawn position!
@@ -154,16 +166,16 @@ class AutoExplorerZone(Node):
         self.stuck_threshold = 0.3  # Must move at least 0.3m in 10 seconds
         self.stuck_timeout = 10.0  # seconds
 
-        # TF2 for getting actual world position (more accurate than odom math)
+        # TF2 for collision detection with other robot only
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
-        # World position from TF (updated in timer)
-        self.world_x = 0.0
+        # World position calculated from odom (reliable for boundary detection)
+        # TF from SLAM doesn't match Gazebo world coordinates!
+        self.world_x = self.spawn_world_x  # Start at spawn position
         self.world_y = 0.0
-        self.tf_available = False
 
-        # Timer to check TF at high frequency for boundary detection
+        # Timer to check for robot-to-robot collision
         self.tf_timer = self.create_timer(0.05, self.tf_callback)  # 20Hz TF check
 
         # Escape state for stuck situations
@@ -183,50 +195,15 @@ class AutoExplorerZone(Node):
         self.get_logger().info(f'Topics: cmd_vel={cmd_vel_topic}, scan={scan_topic}, odom={odom_topic}')
         self.get_logger().info(f'Obstacle avoidance distance: {self.obstacle_distance}m')
         self.get_logger().info(f'Stuck detection: {self.stuck_timeout}s timeout, {self.stuck_threshold}m threshold')
-        self.get_logger().info(f'Using TF for world position (frame: world -> {self.robot_ns}/base_footprint)')
+        self.get_logger().info(f'Using ODOM-based world position: world_x = odom_x + spawn_world_x ({self.spawn_world_x})')
+        self.get_logger().info(f'Boundary at world x=0, which is odom x={self.boundary_odom_x}')
 
     def tf_callback(self):
-        """Get robot's actual world position from TF - triggers boundary response and collision check"""
+        """Check for robot-to-robot collision using TF (not used for boundary detection)"""
         if self.exploration_stopped:
             return
 
-        try:
-            # Get transform from world to this robot's base
-            transform = self.tf_buffer.lookup_transform(
-                'world',
-                f'{self.robot_ns}/base_footprint',
-                rclpy.time.Time(),
-                timeout=rclpy.duration.Duration(seconds=0.1)
-            )
-            self.world_x = transform.transform.translation.x
-            self.world_y = transform.transform.translation.y
-            self.tf_available = True
-
-            # IMMEDIATE boundary check using ACTUAL world coordinates from TF!
-            if self.is_in_wrong_zone_tf() and not self.returning_to_zone:
-                self.get_logger().warn(f'[{self.robot_ns}] !!BOUNDARY CROSSED!! World x={self.world_x:.2f} (TF) - IMMEDIATE TURN')
-
-                # IMMEDIATELY start turning back
-                self.state = self.get_turn_direction_to_zone()
-                self.turn_duration = 1.57  # 90 degree turn
-                self.turn_start_time = self.get_clock().now()
-                self.returning_to_zone = True
-
-                # Publish turn command immediately
-                cmd = Twist()
-                cmd.linear.x = 0.0
-                if self.state == 'TURN_LEFT':
-                    cmd.angular.z = self.angular_speed
-                else:
-                    cmd.angular.z = -self.angular_speed
-                self.cmd_vel_pub.publish(cmd)
-
-        except TransformException:
-            # TF not available yet, use odom-based calculation as fallback
-            if not self.tf_available:
-                pass  # Don't spam logs during startup
-
-        # Also track other robot's position for collision detection
+        # Track other robot's position for collision detection
         try:
             other_transform = self.tf_buffer.lookup_transform(
                 'world',
@@ -238,19 +215,18 @@ class AutoExplorerZone(Node):
             self.other_robot_y = other_transform.transform.translation.y
             self.other_robot_available = True
 
-            # Check distance to other robot
-            if self.tf_available:
-                distance = self.get_distance_to_other_robot()
-                if distance < self.collision_distance and self.collision_state is None:
-                    self.get_logger().warn(f'[{self.robot_ns}] !!COLLISION WARNING!! Distance to {self.other_robot_ns}: {distance:.2f}m - AVOIDING!')
-                    self.collision_state = 'REVERSE'
-                    self.collision_start_time = self.get_clock().now()
+            # Check distance to other robot using odom-based positions
+            distance = self.get_distance_to_other_robot()
+            if distance < self.collision_distance and self.collision_state is None:
+                self.get_logger().warn(f'[{self.robot_ns}] !!COLLISION WARNING!! Distance to {self.other_robot_ns}: {distance:.2f}m - AVOIDING!')
+                self.collision_state = 'REVERSE'
+                self.collision_start_time = self.get_clock().now()
 
-                    # Immediately start reversing
-                    cmd = Twist()
-                    cmd.linear.x = -0.15
-                    cmd.angular.z = 0.0
-                    self.cmd_vel_pub.publish(cmd)
+                # Immediately start reversing
+                cmd = Twist()
+                cmd.linear.x = -0.15
+                cmd.angular.z = 0.0
+                self.cmd_vel_pub.publish(cmd)
 
         except TransformException:
             # Other robot TF not available
@@ -285,9 +261,24 @@ class AutoExplorerZone(Node):
             return 'TURN_LEFT'   # Other robot is to our right, turn left
 
     def odom_callback(self, msg):
-        """Track robot position from odometry"""
+        """Track robot position from odometry and calculate world position"""
         self.robot_x = msg.pose.pose.position.x
         self.robot_y = msg.pose.pose.position.y
+
+        # Capture initial odom position on first message
+        # Odom doesn't always start at (0,0) - Gazebo may have an offset
+        if self.initial_odom_x is None:
+            self.initial_odom_x = self.robot_x
+            self.initial_odom_y = self.robot_y
+            self.get_logger().info(f'[{self.robot_ns}] Initial odom captured: x={self.initial_odom_x:.2f}, y={self.initial_odom_y:.2f}')
+
+        # Calculate world position from odom DELTA (not absolute odom)
+        # world_x = spawn_world_x + (current_odom - initial_odom)
+        # This way, at spawn: world_x = spawn_world_x + 0 = spawn_world_x (correct!)
+        odom_delta_x = self.robot_x - self.initial_odom_x
+        odom_delta_y = self.robot_y - self.initial_odom_y
+        self.world_x = self.spawn_world_x + odom_delta_x
+        self.world_y = odom_delta_y  # Y spawn offset not needed for boundary
 
         # Extract yaw from quaternion
         q = msg.pose.pose.orientation
@@ -295,13 +286,17 @@ class AutoExplorerZone(Node):
         cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
         self.robot_yaw = math.atan2(siny_cosp, cosy_cosp)
 
-        # Fallback boundary check if TF not available
-        if not self.tf_available and self.is_in_wrong_zone() and not self.returning_to_zone and not self.exploration_stopped:
-            world_x = self.robot_x + self.spawn_world_x
-            self.get_logger().warn(f'[{self.robot_ns}] !!BOUNDARY CROSSED!! Odom x={self.robot_x:.2f}, World x={world_x:.2f} (odom fallback)')
+        # BOUNDARY CHECK using odom-based world position
+        if self.is_in_wrong_zone() and not self.returning_to_zone and not self.exploration_stopped:
+            self.get_logger().warn(f'[{self.robot_ns}] !!BOUNDARY CROSSED!! Odom x={self.robot_x:.2f} -> World x={self.world_x:.2f} (boundary at 0)')
+
+            # CANCEL center exploration if active
+            if self.center_explore_active:
+                self.center_explore_active = False
+                self.get_logger().warn(f'[{self.robot_ns}] CENTER EXPLORATION CANCELLED - Boundary crossed!')
 
             self.state = self.get_turn_direction_to_zone()
-            self.turn_duration = 1.57
+            self.turn_duration = 1.57  # 90 degree turn
             self.turn_start_time = self.get_clock().now()
             self.returning_to_zone = True
 
@@ -325,36 +320,23 @@ class AutoExplorerZone(Node):
             self.cmd_vel_pub.publish(stop_cmd)
 
     def is_in_wrong_zone(self):
-        """Check if robot has crossed into the wrong zone using odom (fallback)"""
-        if self.zone == 'left':
-            return self.robot_x > self.boundary_odom_x
-        else:
-            return self.robot_x < self.boundary_odom_x
-
-    def is_in_wrong_zone_tf(self):
-        """Check if robot has crossed into the wrong zone using TF world coordinates"""
+        """Check if robot has crossed into the wrong zone using odom-based world_x"""
         # Boundary is at world x = 0
+        # world_x is calculated as: odom_x + spawn_world_x
         if self.zone == 'left':
-            # Left zone robot should stay in x < 0
+            # Left zone robot should stay in world x < 0
             return self.world_x > 0.0
         else:
-            # Right zone robot should stay in x > 0
+            # Right zone robot should stay in world x > 0
             return self.world_x < 0.0
 
     def is_near_boundary(self):
-        """Check if robot is approaching the zone boundary (within 0.5m)"""
-        if self.tf_available:
-            # Use TF world coordinates (more accurate)
-            if self.zone == 'left':
-                return self.world_x > -0.5  # Within 0.5m of x=0
-            else:
-                return self.world_x < 0.5   # Within 0.5m of x=0
+        """Check if robot is approaching the zone boundary (within 0.5m of world x=0)"""
+        # Use odom-based world_x calculation
+        if self.zone == 'left':
+            return self.world_x > -0.5  # Within 0.5m of x=0
         else:
-            # Fallback to odom calculation
-            if self.zone == 'left':
-                return self.robot_x > self.boundary_odom_x - 0.5
-            else:
-                return self.robot_x < self.boundary_odom_x + 0.5
+            return self.world_x < 0.5   # Within 0.5m of x=0
 
     def get_turn_direction_to_zone(self):
         """Determine which way to turn to get back to assigned zone"""
@@ -372,6 +354,42 @@ class AutoExplorerZone(Node):
                 return 'TURN_LEFT'
             else:
                 return 'TURN_RIGHT'
+
+    def get_turn_toward_zone_center(self):
+        """Calculate turn direction to face toward the center of assigned zone"""
+        # Zone centers:
+        # Left zone: center around x = -half of zone width (e.g., x = -2.5 for 5m half-width)
+        # Right zone: center around x = +half of zone width (e.g., x = +2.5 for 5m half-width)
+        # Y center is typically around 0
+
+        if self.zone == 'left':
+            # Target is center of left zone (negative x, middle y)
+            target_x = -self.spawn_offset / 2  # Middle of left zone
+        else:
+            # Target is center of right zone (positive x, middle y)
+            target_x = self.spawn_offset / 2  # Middle of right zone
+
+        target_y = 0.0  # Center of y axis
+
+        # Calculate angle to target from current position using odom-based world position
+        dx = target_x - self.world_x
+        dy = target_y - self.world_y
+
+        target_angle = math.atan2(dy, dx)
+
+        # Calculate angle difference
+        angle_diff = target_angle - self.robot_yaw
+        # Normalize to [-pi, pi]
+        while angle_diff > math.pi:
+            angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi:
+            angle_diff += 2 * math.pi
+
+        # Return turn direction
+        if angle_diff > 0:
+            return 'TURN_LEFT'
+        else:
+            return 'TURN_RIGHT'
 
     def check_if_stuck(self):
         """Check if robot has been stuck in same position for too long"""
@@ -428,14 +446,13 @@ class AutoExplorerZone(Node):
         # Make movement decision
         cmd = Twist()
 
-        # Use TF-based check if available, otherwise fallback to odom
-        in_wrong_zone = self.is_in_wrong_zone_tf() if self.tf_available else self.is_in_wrong_zone()
+        # Use odom-based world_x for boundary check (reliable)
+        in_wrong_zone = self.is_in_wrong_zone()
 
         # ZONE CHECK - Check if we're back in zone
         if not in_wrong_zone and self.returning_to_zone:
             # Back in correct zone - reset flag
-            pos_str = f'TF x={self.world_x:.2f}' if self.tf_available else f'Odom x={self.robot_x:.2f}'
-            self.get_logger().info(f'[{self.robot_ns}] Back in {self.zone.upper()} zone! {pos_str}')
+            self.get_logger().info(f'[{self.robot_ns}] Back in {self.zone.upper()} zone! World x={self.world_x:.2f}')
             self.returning_to_zone = False
 
         # PRIORITY: If still in wrong zone after turning, keep trying to return!
@@ -448,8 +465,7 @@ class AutoExplorerZone(Node):
 
             if not facing_correct:
                 # Still facing wrong way - turn again!
-                pos_str = f'TF x={self.world_x:.2f}' if self.tf_available else f'Odom x={self.robot_x + self.spawn_world_x:.2f}'
-                self.get_logger().warn(f'[{self.robot_ns}] Still in WRONG ZONE ({pos_str})! Turning again...')
+                self.get_logger().warn(f'[{self.robot_ns}] Still in WRONG ZONE (World x={self.world_x:.2f})! Turning again...')
                 self.state = self.get_turn_direction_to_zone()
                 self.turn_duration = 1.57
                 self.turn_start_time = self.get_clock().now()
@@ -546,14 +562,19 @@ class AutoExplorerZone(Node):
             # Check if approaching zone boundary (only if not in cooldown AND not returning to zone)
             # Skip this check if returning_to_zone is True to avoid confusion
             if self.is_near_boundary() and self.boundary_turn_cooldown == 0 and not self.returning_to_zone:
+                # CANCEL center exploration if active - boundary takes priority!
+                if self.center_explore_active:
+                    self.center_explore_active = False
+                    self.get_logger().warn(f'[{self.robot_ns}] CENTER EXPLORATION CANCELLED - Near boundary!')
+
                 # Turn away from boundary with a bigger turn
                 if self.zone == 'left':
                     self.state = 'TURN_LEFT'  # Turn back into left zone
-                    self.get_logger().info(f'[{self.robot_ns}] Near boundary (x={self.robot_x:.2f}) - Turning LEFT into zone')
+                    self.get_logger().warn(f'[{self.robot_ns}] !! NEAR BOUNDARY !! World x={self.world_x:.2f} - Turning LEFT into zone')
                 else:
                     self.state = 'TURN_RIGHT'  # Turn back into right zone
-                    self.get_logger().info(f'[{self.robot_ns}] Near boundary (x={self.robot_x:.2f}) - Turning RIGHT into zone')
-                self.turn_duration = random.uniform(0.4, 0.5)  # Smaller turn (~25-30 degrees)
+                    self.get_logger().warn(f'[{self.robot_ns}] !! NEAR BOUNDARY !! World x={self.world_x:.2f} - Turning RIGHT into zone')
+                self.turn_duration = random.uniform(0.8, 1.2)  # Bigger turn (~45-70 degrees) to get away from boundary
                 self.turn_start_time = self.get_clock().now()
                 self.forward_counter = 0
                 self.boundary_turn_cooldown = 100  # Don't check boundary for next 100 callbacks (~10 seconds)
@@ -583,6 +604,30 @@ class AutoExplorerZone(Node):
                 # Path is clear - move forward
                 cmd.linear.x = self.linear_speed
                 cmd.angular.z = 0.0
+
+                # CENTER EXPLORATION - periodically turn toward zone center
+                current_time = self.get_clock().now()
+                center_elapsed = (current_time - self.center_explore_timer).nanoseconds / 1e9
+
+                if center_elapsed >= self.center_explore_interval and not self.center_explore_active:
+                    # Time to explore center!
+                    self.center_explore_active = True
+                    self.center_explore_start_time = current_time
+                    self.center_explore_timer = current_time  # Reset timer
+
+                    # Turn toward zone center
+                    self.state = self.get_turn_toward_zone_center()
+                    self.turn_duration = random.uniform(0.8, 1.5)  # ~45-90 degree turn
+                    self.turn_start_time = current_time
+                    self.forward_counter = 0
+                    self.get_logger().info(f'[{self.robot_ns}] CENTER EXPLORATION: Turning toward zone center!')
+
+                elif self.center_explore_active:
+                    # Currently in center exploration mode - drive forward for a while
+                    explore_elapsed = (current_time - self.center_explore_start_time).nanoseconds / 1e9
+                    if explore_elapsed > 8.0:  # Drive toward center for 8 seconds
+                        self.center_explore_active = False
+                        self.get_logger().info(f'[{self.robot_ns}] CENTER EXPLORATION complete, resuming normal exploration')
 
                 # Random exploration turn (bias toward our zone)
                 self.forward_counter += 1
@@ -621,13 +666,12 @@ class AutoExplorerZone(Node):
             self._log_count = 0
         self._log_count += 1
         if self._log_count % 20 == 0:  # More frequent logging
-            if self.tf_available:
-                status = "OK" if not self.is_in_wrong_zone_tf() else "**WRONG ZONE**"
-                self.get_logger().info(f'[{self.robot_ns}] {status} | TF World x={self.world_x:.2f} | Boundary=0.0')
+            status = "OK" if not self.is_in_wrong_zone() else "**WRONG ZONE**"
+            if self.initial_odom_x is not None:
+                delta_x = self.robot_x - self.initial_odom_x
+                self.get_logger().info(f'[{self.robot_ns}] {status} | Delta x={delta_x:.2f} -> World x={self.world_x:.2f} | Boundary=0.0')
             else:
-                world_x = self.robot_x + self.spawn_world_x
-                status = "OK" if not self.is_in_wrong_zone() else "**WRONG ZONE**"
-                self.get_logger().info(f'[{self.robot_ns}] {status} | Odom x={self.robot_x:.2f} | World x={world_x:.2f} (calc) | Boundary={self.boundary_odom_x:.2f}')
+                self.get_logger().info(f'[{self.robot_ns}] Waiting for initial odom...')
 
 
 def main(args=None):

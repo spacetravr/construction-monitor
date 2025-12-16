@@ -111,7 +111,12 @@ class MapMerger(Node):
 
     def merge_maps(self, map1, map2):
         """
-        Merge two maps into one.
+        Merge two maps into one using proper coordinate transformation.
+
+        Each robot's SLAM creates a map with its own origin. This function:
+        1. Calculates the world-frame bounding box that contains both maps
+        2. Creates a merged map in that bounding box
+        3. Transforms each map's cells to the correct world position
 
         OccupancyGrid values:
           -1 = Unknown
@@ -123,43 +128,112 @@ class MapMerger(Node):
           - Free (0) wins over unknown (-1)
           - Unknown stays unknown
         """
-        # Create merged map based on map1's structure
+        resolution = map1.info.resolution
+
+        # Get map1 bounds in world coordinates
+        map1_origin_x = map1.info.origin.position.x
+        map1_origin_y = map1.info.origin.position.y
+        map1_width = map1.info.width
+        map1_height = map1.info.height
+        map1_max_x = map1_origin_x + map1_width * resolution
+        map1_max_y = map1_origin_y + map1_height * resolution
+
+        # Get map2 bounds in world coordinates
+        map2_origin_x = map2.info.origin.position.x
+        map2_origin_y = map2.info.origin.position.y
+        map2_width = map2.info.width
+        map2_height = map2.info.height
+        map2_max_x = map2_origin_x + map2_width * resolution
+        map2_max_y = map2_origin_y + map2_height * resolution
+
+        # Calculate merged map bounds (union of both maps)
+        merged_origin_x = min(map1_origin_x, map2_origin_x)
+        merged_origin_y = min(map1_origin_y, map2_origin_y)
+        merged_max_x = max(map1_max_x, map2_max_x)
+        merged_max_y = max(map1_max_y, map2_max_y)
+
+        # Calculate merged map dimensions
+        merged_width = int(np.ceil((merged_max_x - merged_origin_x) / resolution))
+        merged_height = int(np.ceil((merged_max_y - merged_origin_y) / resolution))
+
+        # Initialize merged map with unknown (-1)
+        merged_data = np.full((merged_height, merged_width), -1, dtype=np.int8)
+
+        # Convert map1 data to 2D array
+        data1 = np.array(map1.data, dtype=np.int8).reshape((map1_height, map1_width))
+
+        # Calculate offset of map1 in merged map
+        offset1_x = int(round((map1_origin_x - merged_origin_x) / resolution))
+        offset1_y = int(round((map1_origin_y - merged_origin_y) / resolution))
+
+        # Copy map1 data to merged map using NumPy slicing (much faster than loops)
+        # Calculate the valid region to copy
+        src_y_start = max(0, -offset1_y)
+        src_y_end = min(map1_height, merged_height - offset1_y)
+        src_x_start = max(0, -offset1_x)
+        src_x_end = min(map1_width, merged_width - offset1_x)
+
+        dst_y_start = offset1_y + src_y_start
+        dst_y_end = offset1_y + src_y_end
+        dst_x_start = offset1_x + src_x_start
+        dst_x_end = offset1_x + src_x_end
+
+        if src_y_end > src_y_start and src_x_end > src_x_start:
+            merged_data[dst_y_start:dst_y_end, dst_x_start:dst_x_end] = \
+                data1[src_y_start:src_y_end, src_x_start:src_x_end]
+
+        # Convert map2 data to 2D array
+        data2 = np.array(map2.data, dtype=np.int8).reshape((map2_height, map2_width))
+
+        # Calculate offset of map2 in merged map
+        offset2_x = int(round((map2_origin_x - merged_origin_x) / resolution))
+        offset2_y = int(round((map2_origin_y - merged_origin_y) / resolution))
+
+        # Calculate valid region for map2
+        src2_y_start = max(0, -offset2_y)
+        src2_y_end = min(map2_height, merged_height - offset2_y)
+        src2_x_start = max(0, -offset2_x)
+        src2_x_end = min(map2_width, merged_width - offset2_x)
+
+        dst2_y_start = offset2_y + src2_y_start
+        dst2_y_end = offset2_y + src2_y_end
+        dst2_x_start = offset2_x + src2_x_start
+        dst2_x_end = offset2_x + src2_x_end
+
+        # Merge map2 using vectorized NumPy operations (much faster)
+        if src2_y_end > src2_y_start and src2_x_end > src2_x_start:
+            region1 = merged_data[dst2_y_start:dst2_y_end, dst2_x_start:dst2_x_end]
+            region2 = data2[src2_y_start:src2_y_end, src2_x_start:src2_x_end]
+
+            # Merge logic using NumPy: wall (100) > free (0) > unknown (-1)
+            # Start with current values (from map1)
+            result = region1.copy()
+
+            # Wall wins over everything
+            wall_mask = (region1 == 100) | (region2 == 100)
+            result[wall_mask] = 100
+
+            # Free wins over unknown (but not over wall)
+            free_mask = ~wall_mask & ((region1 == 0) | (region2 == 0))
+            result[free_mask] = 0
+
+            # Apply merged result
+            merged_data[dst2_y_start:dst2_y_end, dst2_x_start:dst2_x_end] = result
+
+        # Create merged OccupancyGrid message
         merged = OccupancyGrid()
         merged.header.stamp = self.get_clock().now().to_msg()
-        merged.header.frame_id = 'world'  # Use world frame for RViz visualization
-        merged.info = map1.info
+        merged.header.frame_id = 'world'
+        merged.info.resolution = resolution
+        merged.info.width = merged_width
+        merged.info.height = merged_height
+        merged.info.origin.position.x = merged_origin_x
+        merged.info.origin.position.y = merged_origin_y
+        merged.info.origin.position.z = 0.0
+        merged.info.origin.orientation.w = 1.0
 
-        # Get data as numpy arrays
-        data1 = np.array(map1.data, dtype=np.int8)
-        data2 = np.array(map2.data, dtype=np.int8)
-
-        # Handle different sizes
-        if len(data1) != len(data2):
-            # Use larger map as base
-            if len(data1) > len(data2):
-                padded = np.full(len(data1), -1, dtype=np.int8)
-                padded[:len(data2)] = data2
-                data2 = padded
-            else:
-                padded = np.full(len(data2), -1, dtype=np.int8)
-                padded[:len(data1)] = data1
-                data1 = padded
-                merged.info = map2.info
-
-        # Merge: wall > free > unknown
-        merged_data = np.full(len(data1), -1, dtype=np.int8)
-
-        for i in range(len(data1)):
-            v1, v2 = data1[i], data2[i]
-
-            if v1 == 100 or v2 == 100:
-                merged_data[i] = 100  # Wall
-            elif v1 == 0 or v2 == 0:
-                merged_data[i] = 0    # Free
-            else:
-                merged_data[i] = -1   # Unknown
-
-        merged.data = merged_data.tolist()
+        # Flatten back to 1D list
+        merged.data = merged_data.flatten().tolist()
 
         # Log stats - use FIXED expected world size for percentage
         walls = np.sum(merged_data == 100)
@@ -172,7 +246,7 @@ class MapMerger(Node):
         explored_percent = min(explored_percent, 100.0)
 
         self.get_logger().info(
-            f'Explored: {explored_percent:.1f}% of construction site | Walls:{walls} Free:{free} | Map cells:{len(merged_data)}',
+            f'Explored: {explored_percent:.1f}% of construction site | Walls:{walls} Free:{free} | Map cells:{merged_data.size}',
             throttle_duration_sec=5.0
         )
 
