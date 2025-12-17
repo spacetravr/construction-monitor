@@ -30,6 +30,8 @@ setup(
             'auto_explorer_zone = construction_monitor.auto_explorer_zone:main',
             'map_merger = construction_monitor.map_merger:main',
             'construction_progress = construction_monitor.construction_progress:main',
+            'generate_blueprint = construction_monitor.generate_blueprint:main',
+            'compare_blueprints = construction_monitor.compare_blueprints:main',
         ],
     },
 )

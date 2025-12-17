@@ -35,7 +35,9 @@ construction_monitor/
 ├── construction_monitor/          # Python nodes
 │   ├── auto_explorer_zone.py      # Zone-based autonomous explorer
 │   ├── map_merger.py              # Merges maps from two robots
-│   └── construction_progress.py   # Compares map with blueprint
+│   ├── construction_progress.py   # Compares map with blueprint
+│   ├── generate_blueprint.py      # Generates clean blueprint from world file
+│   └── compare_blueprints.py      # Compares two clean blueprints
 │
 ├── launch/
 │   └── two_robots_slam.launch.py  # Main launch file
@@ -127,6 +129,7 @@ world
 ### construction_progress
 - `blueprint_map`: Path to blueprint .yaml file
 - `update_interval`: How often to calculate progress (default: 5.0s)
+- `slam_noise_factor`: SLAM noise correction factor (default: 1.33)
 
 ## Technical Details
 
@@ -139,12 +142,27 @@ The map merger uses proper coordinate transformation:
 5. Uses NumPy vectorized operations for ~100x faster processing
 
 ### Construction Progress Comparison
-Uses centroid-based alignment to handle SLAM origin drift between sessions:
-1. Calculates centroid (center of mass) of all walls in scanned map
-2. Calculates centroid of all walls in blueprint
-3. Computes offset to align the two centroids
-4. Compares wall positions with ±3 cell tolerance
-5. Reports: `walls_found / blueprint_walls * 100%`
+Uses wall cell count ratio with SLAM noise correction:
+1. Counts wall cells in scanned map
+2. Counts wall cells in blueprint
+3. Applies SLAM noise correction factor (default 1.33)
+4. Reports: `scanned_walls / (blueprint_walls * factor) * 100%`
+
+### Blueprint Generation
+Generate clean blueprints directly from Gazebo world files:
+```bash
+ros2 run construction_monitor generate_blueprint --ros-args \
+  -p world_file:=/path/to/world.world \
+  -p output_path:=~/construction_maps/blueprint.yaml
+```
+
+### Clean Blueprint Comparison
+Compare two clean blueprints for accurate progress (no SLAM noise):
+```bash
+ros2 run construction_monitor compare_blueprints --ros-args \
+  -p complete_blueprint:=~/construction_maps/blueprint_clean.yaml \
+  -p incomplete_blueprint:=~/construction_maps/blueprint_70_clean.yaml
+```
 
 ## License
 
